@@ -1,4 +1,3 @@
-# CAN-Driven-Vehicle-Monitoring-and-Driver-Assistance-System
 # 🚗 CAN-Driven Vehicle Monitoring and Driver Assistance System
 
 <p align="center">
@@ -18,8 +17,6 @@
 <img src="https://img.shields.io/badge/Transceiver-MCP2551-red?style=for-the-badge">
 
 <img src="https://img.shields.io/badge/IDE-Keil%20%C2%B5Vision-purple?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/Simulation-Proteus-yellow?style=for-the-badge">
 
 </p>
 
