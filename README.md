@@ -99,9 +99,9 @@ flowchart LR
     class FUEL fuel;
     class MAIN main;
     class ALERT alert;
-
+---
 # 📡 CAN Communication Architecture
-
+---
 The system uses a **CAN-based multi-node architecture** in which three LPC2129-based nodes communicate with each other through the CAN network.
 
 ### 🔹 Nodes in the System
