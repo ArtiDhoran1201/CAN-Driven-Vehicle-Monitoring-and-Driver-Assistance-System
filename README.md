@@ -99,3 +99,26 @@ flowchart LR
     class FUEL fuel;
     class MAIN main;
     class ALERT alert;
+
+;
+**But:** if you want it to look like a **proper colorful professional diagram on GitHub**, then you **cannot copy the generated image itself as text**. You need to **upload the PNG to your GitHub repository**, then add the image to README.
+
+For the diagram I just created, the file is:
+
+[Download CAN Communication Architecture PNG](sandbox:/mnt/data/a_clean_infographic_diagram_on_a_white_background.png)
+
+Then in GitHub:
+
+**Repository → docs/images → Add file → Upload files → select this PNG → Commit changes**
+
+Then README:
+
+```html
+## 📡 CAN Communication Architecture
+
+<p align="center">
+  <img src="docs/images/can-communication-architecture.png"
+       alt="CAN Communication Architecture"
+       width="100%">
+</p>
+
