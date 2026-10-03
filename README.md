@@ -1,595 +1,346 @@
-# 🚗 CAN-Driven Vehicle Monitoring and Driver Assistance System
+# CAN-Driven Vehicle Monitoring & Driver Assistance System
 
-<p align="center">
+A three-node automotive-style network built on **NXP LPC2129 (ARM7TDMI-S)** boards. The nodes talk over a **CAN 2.0A bus at 125 kbps** to monitor fuel level and engine temperature, control turn indicators, and warn the driver of obstacles while reversing. A central dashboard (20x4 LCD) shows live vehicle status.
 
-### 📡 A CAN-Based Multi-Node Vehicle Monitoring and Driver Assistance System
+![MCU](https://img.shields.io/badge/MCU-LPC2129-blue)
+![Protocol](https://img.shields.io/badge/protocol-CAN%202.0A%20%40125kbps-green)
+![Language](https://img.shields.io/badge/language-Embedded%20C-orange)
+![Toolchain](https://img.shields.io/badge/toolchain-Keil%20uVision-lightgrey)
 
-</p>
+---
+<img width="600" height="800" alt="WhatsApp Image 2026-10-02 at 3 13 15 PM" src="https://github.com/user-attachments/assets/57e802ff-9f69-47b7-9e41-a550bc5887a3" />
 
-<p align="center">
 
-<img src="https://img.shields.io/badge/Language-Embedded%20C-blue?style=for-the-badge&logo=c">
+## Table of Contents
 
-<img src="https://img.shields.io/badge/MCU-LPC2129-green?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/Protocol-CAN-orange?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/Transceiver-MCP2551-red?style=for-the-badge">
-
-<img src="https://img.shields.io/badge/IDE-Keil%20%C2%B5Vision-purple?style=for-the-badge">
-
-</p>
+- [Features](#features)
+- [System Architecture](#system-architecture)
+- [Hardware](#hardware)
+- [Pin Maps](#pin-maps)
+- [CAN Protocol Design](#can-protocol-design)
+- [Node Behaviour](#node-behaviour)
+- [LCD Dashboard](#lcd-dashboard)
+- [Repository Structure](#repository-structure)
+- [Build & Flash](#build--flash)
+- [Bring-up & Test Plan](#bring-up--test-plan)
+- [Known Limitations & Roadmap](#known-limitations--roadmap)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
-## 📌 Overview
+## Features
 
-The **CAN-Driven Vehicle Monitoring and Driver Assistance System** is a distributed embedded system designed to monitor important vehicle parameters and provide driver assistance features using **CAN communication**.
-
-The system is developed using the **LPC2129 ARM7 microcontroller** and consists of three independent nodes connected through a CAN communication network:
-
-- 🖥️ **Main Node**
-- ⛽ **Fuel Node**
-- 🚨 **Indicator & Reverse Alert Node**
-
-The **Main Node** acts as the central monitoring and control unit. It monitors engine temperature, receives fuel percentage from the Fuel Node, manages Forward/Reverse mode selection, controls indicator commands, and displays vehicle information and reverse-alert status on a **20×4 LCD**.
-
-The **Fuel Node** reads the fuel input using the LPC2129 ADC, converts the ADC value into fuel percentage, and transmits the information to the Main Node through CAN.
-
-The **Indicator & Reverse Alert Node** controls the left and right indicators in Forward Mode and performs obstacle detection using the **HC-SR04 ultrasonic sensor** in Reverse Mode.
-
----
-
-## 🎯 Aim
-
-To design and implement a **CAN-based multi-node vehicle monitoring and driver assistance system** capable of:
-
-- ⛽ Monitoring fuel level
-- 🌡️ Monitoring engine temperature
-- 📏 Providing reverse obstacle detection
-- ↔️ Controlling left and right indicators
-- 🔔 Generating driver alerts
-- 🖥️ Displaying vehicle information on an LCD
-- 📡 Communicating between multiple embedded nodes using CAN
-
----
-
-## ✨ Key Features
-
-| Feature | Description |
+| Area | What it does |
 |---|---|
-| 🧠 Multi-Node Architecture | Three LPC2129-based nodes communicate through CAN |
-| 📡 CAN Communication | Communication between multiple vehicle nodes |
-| ⛽ Fuel Monitoring | Fuel level measurement using ADC |
-| 🌡️ Temperature Monitoring | Engine temperature monitoring using DS18B20 |
-| 🔄 Forward / Reverse Mode | Vehicle mode selection using external interrupt |
-| ↔️ Indicator Control | Left and right indicator control |
-| 📏 Reverse Obstacle Detection | HC-SR04 based obstacle detection |
-| 🟢 SAFE Status | Indicates obstacle is beyond warning range |
-| 🟡 WARNING Status | Generates intermittent buzzer alert |
-| 🔴 STOP Status | Generates continuous buzzer and activates alert LED |
-| ⚠️ Sensor Fault | Detects missing ultrasonic echo |
-| 🖥️ LCD Dashboard | Displays temperature, fuel, mode and reverse status |
+| **Fuel monitoring** | 10-bit on-chip ADC reads a float-type fuel gauge, converts to 0-100 %, and sends it over CAN periodically and on significant change |
+| **Engine temperature** | DS18B20 (1-Wire, bit-banged) read by the Main Node and shown on the dashboard |
+| **Mode selection** | External-interrupt switch toggles **Forward / Reverse**; the mode is broadcast to the other nodes |
+| **Turn indicators** | Left/Right switches (external interrupts) send commands; 8 LEDs scroll right-to-left (left) or left-to-right (right) |
+| **Reverse assist** | HC-SR04/HC-SR05 ultrasonic ranging in Reverse mode with **SAFE / WARNING / STOP** zones, intermittent or continuous buzzer, and a STOP LED |
+| **Fault reporting** | "No echo" from the ultrasonic sensor is reported as `FAULT`, not mistaken for "path clear" |
+| **Dashboard** | 20x4 LCD with custom CGRAM glyphs: 5-level fuel icon and blinking turn arrows |
 
 ---
 
-# 🏗️ System Architecture
+## System Architecture
 
-The system consists of three LPC2129-based embedded nodes connected through a common **CAN communication network**.
+```mermaid
+flowchart TB
+    subgraph MAIN["MAIN NODE (LPC2129 + MCP2551)"]
+        direction LR
+        LCD[20x4 LCD]
+        DS[DS18B20]
+        SW["EINT0: Mode SW<br/>EINT1: Left SW<br/>EINT2: Right SW"]
+        BZ[Buzzer]
+    end
+    subgraph IND["INDICATOR & REVERSE ALERT NODE (LPC2129 + MCP2551)"]
+        direction LR
+        LEDS[8 indicator LEDs]
+        US[HC-SR04 / HC-SR05]
+        BZ2[Buzzer + STOP LED]
+    end
+    subgraph FUEL["FUEL NODE (LPC2129 + MCP2551)"]
+        FG[Fuel gauge via ADC]
+    end
 
-```text
-                    🚗 VEHICLE MONITORING SYSTEM
-                              │
-                    ┌─────────┴─────────┐
-                    │                   │
-              📡 CAN COMMUNICATION NETWORK
-                    │
-        ┌───────────┼───────────────┐
-        │           │               │
-        ↓           ↓               ↓
+    BUS(("CAN BUS<br/>125 kbps<br/>120 ohm termination at both ends"))
+    MAIN <--> BUS
+    IND <--> BUS
+    FUEL <--> BUS
+```
 
-┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐
-│ ⛽ FUEL NODE  │  │ 🖥️ MAIN NODE │  │ 🚨 INDICATOR &       │
-│              │  │              │  │ REVERSE ALERT NODE   │
-│  LPC2129     │  │  LPC2129     │  │      LPC2129         │
-│              │  │              │  │                      │
-│ Fuel Sensor  │  │ DS18B20      │  │ Left Indicator       │
-│ ADC          │  │ 20×4 LCD     │  │ Right Indicator      │
-│              │  │ Switches     │  │ HC-SR04              │
-│ Fuel %       │  │ Mode Control │  │ Buzzer               │
-│              │  │              │  │ Alert LED            │
-└──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘
-       │                  │                     │
-       └──────────────────┼─────────────────────┘
-                          │
-                     📡 CAN BUS
-BUS
-📡 CAN Communication Architecture
+**Data flow**
 
-The system uses a CAN-based multi-node architecture in which three LPC2129-based nodes communicate with each other through the CAN network.
+| From | To | Message | Purpose |
+|---|---|---|---|
+| Fuel Node | Main Node | `0x100` | Fuel percentage |
+| Main Node | Indicator & Reverse Node | `0x200` | Vehicle mode and indicator commands |
+| Indicator & Reverse Node | Main Node | `0x300` | Reverse status and distance |
 
-🔹 Nodes in the System
-⛽ Fuel Node – Measures fuel level using ADC and sends fuel percentage to the Main Node.
-🖥️ Main Node – Acts as the central monitoring and control unit.
-🚨 Indicator & Reverse Alert Node – Controls indicators and performs reverse obstacle detection.
-🔹 CAN Communication Flow
-┌──────────────────────┐
-│      ⛽ FUEL NODE     │
-│       LPC2129        │
-│                      │
-│ Fuel Sensor → ADC    │
-│        ↓             │
-│ Fuel Percentage      │
-└──────────┬───────────┘
-           │
-           │ CAN ID: 0x100
-           │ Fuel Percentage
-           ↓
-════════════════════════════
-          CAN BUS
-════════════════════════════
-           │
-           ↓
-┌──────────────────────┐
-│     🖥️ MAIN NODE      │
-│       LPC2129        │
-│                      │
-│ DS18B20 Temperature  │
-│ Mode Selection       │
-│ 20×4 LCD             │
-└──────────┬───────────┘
-           │
-           │ CAN ID: 0x200
-           │ Mode / Indicator
-           │ Command
-           ↓
-┌────────────────────────────┐
-│ 🚨 INDICATOR & REVERSE NODE│
-│           LPC2129          │
-│                            │
-│ Left / Right Indicators    │
-│ HC-SR04 Ultrasonic Sensor  │
-│ Buzzer + Alert LED         │
-└────────────┬───────────────┘
-             │
-             │ CAN ID: 0x300
-             │ Distance /
-             │ Reverse Status
-             ↓
-        🖥️ MAIN NODE
-🔄 CAN Data Flow
+---
 
-The CAN communication between the three nodes is performed using different CAN message IDs.
+## Hardware
 
-⛽ Fuel Node → Main Node
-Fuel Sensor
-     ↓
-    ADC
-     ↓
-Fuel Percentage
-     ↓
-CAN ID 0x100
-     ↓
-Main Node
-     ↓
-20×4 LCD
+| Qty | Component | Notes |
+|---|---|---|
+| 3 | Vector LPC2129 CAN node boards (Series 1.2) | 12 MHz crystal, on-board CAN transceiver (MCP2551), UART ISP |
+| 1 | JHD204A 20x4 character LCD (HD44780) | 8-bit mode, Main Node |
+| 1 | DS18B20 temperature sensor + **4.7 kOhm pull-up** | Main Node |
+| 1 | Float-type fuel gauge (variable resistor / potentiometer-style) | Fuel Node, ADC input |
+| 1 | HC-SR04 / HC-SR05 ultrasonic sensor | Indicator Node |
+| 8 + 1 | LEDs (indicators + STOP LED) | Indicator Node |
+| 2 | Buzzers | Main Node and Indicator Node |
+| 3 | Push buttons | Mode, Left, Right (Main Node) |
+| 2 | 120 Ohm resistors | Bus termination at both ends |
+| 1 | USB-to-UART converter | Flashing via ISP |
 
-The Fuel Node measures the fuel level using the ADC, converts the ADC value into fuel percentage and transmits the result to the Main Node using CAN ID 0x100.
+> The LPC2129 runs at **CCLK = 60 MHz** (12 MHz x 5 via PLL) with **PCLK = 15 MHz** (VPBDIV at reset value). Timing constants in `can_defines.h`, `ADC_defines.h` and `hcsr04.c` assume this.
 
-🖥️ Main Node → Indicator & Reverse Alert Node
-Mode Selection
-      ↓
-Forward / Reverse
-      ↓
-Indicator Command
-      ↓
-CAN ID 0x200
-      ↓
-Indicator & Reverse Alert Node
+---
 
-The Main Node sends the selected vehicle mode and indicator control commands to the Indicator & Reverse Alert Node using CAN ID 0x200.
+## Pin Maps
 
-🚨 Indicator & Reverse Alert Node → Main Node
-HC-SR04
-   ↓
-Distance Measurement
-   ↓
-SAFE / WARNING / STOP
-   ↓
-CAN ID 0x300
-   ↓
-Main Node
-   ↓
-LCD Display
+### Main Node
 
-The Indicator & Reverse Alert Node measures the obstacle distance during Reverse Mode and sends the distance and reverse status to the Main Node using CAN ID 0x300.
+| Function | Pin |
+|---|---|
+| LCD D0-D7 | P0.8 - P0.15 |
+| LCD RS / RW / EN | P0.16 / P0.17 / P0.18 |
+| Buzzer (mirrors STOP) | P0.19 |
+| DS18B20 DQ (4.7 kOhm pull-up to VDD) | P0.20 |
+| Mode switch, EINT0 (active low) | P0.1 |
+| Left indicator switch, EINT1 (active low) | P0.3 |
+| Right indicator switch, EINT2 (active low) | P0.7 |
+| CAN1 | TD1 (dedicated), RD1 = P0.25 |
+<img width="600" height="800" alt="WhatsApp Image 2026-10-02 at 3 13 13 PM" src="https://github.com/user-attachments/assets/7f8fa775-12e2-43ab-b4ac-cfed08b4d195" />
 
-🖥️ Main Node
 
-The Main Node is the central monitoring and control unit of the system.
+### Indicator & Reverse Alert Node
 
-Responsibilities
-🌡️ Monitor engine temperature using DS18B20.
-⛽ Receive fuel percentage from the Fuel Node.
-🔄 Manage Forward and Reverse Mode.
-↔️ Control left and right indicator commands.
-📡 Communicate with other nodes through CAN.
-📺 Display vehicle information on the 20×4 LCD.
-🚨 Display reverse obstacle status received from the Indicator & Reverse Alert Node.
-Main Node Flow
-                    MAIN NODE
-                        │
-          ┌─────────────┼─────────────┐
-          │             │             │
-          ↓             ↓             ↓
-     DS18B20       CAN Receive     Switches
-   Temperature      Fuel Data      Mode / Indicator
-          │             │             │
-          └─────────────┼─────────────┘
-                        ↓
-                    LPC2129
-                        ↓
-                    20×4 LCD
-                        ↓
-              Vehicle Information
-⛽ Fuel Node
+| Function | Pin |
+|---|---|
+| 8 indicator LEDs | P0.0 - P0.7 |
+| Reverse Alert (STOP) LED | P0.19 |
+| Buzzer | P0.20 |
+| HC-SR04 TRIG / ECHO | P0.16 / P0.17 |
+| CAN1 | TD1 (dedicated), RD1 = P0.25 |
+<img width="800" height="1000" alt="WhatsApp Image 2026-10-02 at 3 13 12 PM" src="https://github.com/user-attachments/assets/e5745c8c-b5f2-4a1a-a572-0745b04a79bd" />
 
-The Fuel Node is responsible for measuring and transmitting the vehicle fuel level.
 
-Working
-Fuel Sensor
-     ↓
-ADC Input
-     ↓
-LPC2129 ADC
-     ↓
-ADC Value
-     ↓
-Fuel Percentage
-     ↓
-CAN ID 0x100
-     ↓
-Main Node
-Fuel Percentage Calculation
-Fuel Percentage = (ADC Value × 100) / 1023
+### Fuel Node
 
-The calculated fuel percentage is transmitted to the Main Node through CAN.
+| Function | Pin |
+|---|---|
+| Fuel gauge wiper | P0.28 / AD0.1 (channel 1) |
+| CAN1 | TD1 (dedicated), RD1 = P0.25 |
 
-🚨 Indicator & Reverse Alert Node
+---
 
-This node performs two main functions:
+## CAN Protocol Design
 
-↔️ Indicator control during Forward Mode
-📏 Reverse obstacle detection during Reverse Mode
-🟢 Forward Mode
+All IDs and payload codes live in a single shared header, `can_ids.h`. **It must be identical on all three nodes.**
 
-When the vehicle is in Forward Mode:
+### Message map (11-bit standard identifiers)
 
-Forward Mode
-     ↓
-Indicator Switch
-     ↓
-Left / Right Selection
-     ↓
-CAN Command
-     ↓
-Indicator Node
-     ↓
-Left / Right Indicator
+| ID | Direction | DLC | Payload (`Data1`) |
+|---|---|---|---|
+| `0x100` `CAN_ID_FUEL_LEVEL` | Fuel -> Main | 1 | byte 0 = fuel % |
+| `0x200` `CAN_ID_MODE_INDICATOR` | Main -> Indicator | 1 | byte 0 = command (below) |
+| `0x300` `CAN_ID_REVERSE_STATUS` | Indicator -> Main | 3 | byte 0 = status, bytes 1-2 = distance in cm (little-endian) |
 
-The node controls the left and right indicator LEDs according to the command received from the Main Node.
+**Commands on `0x200`**
 
-🔴 Reverse Mode
+| Code | Name | Meaning |
+|---|---|---|
+| `0x01` | `MODE_FORWARD` | Switch to Forward mode |
+| `0x02` | `MODE_REVERSE` | Switch to Reverse mode (enables ultrasonic sensing) |
+| `0x10` | `IND_OFF` | All indicator LEDs off |
+| `0x11` | `IND_LEFT_ON` | Left indicator on |
+| `0x12` | `IND_RIGHT_ON` | Right indicator on |
 
-When Reverse Mode is selected:
+**Status codes on `0x300`**
 
-Reverse Mode
-     ↓
-HC-SR04 Enabled
-     ↓
-Trigger Pulse
-     ↓
-Echo Measurement
-     ↓
-Distance Calculation
-     ↓
-Distance Comparison
-     ↓
-SAFE / WARNING / STOP
-     ↓
-CAN ID 0x300
-     ↓
-Main Node
-     ↓
-LCD + Alert
-📏 Reverse Obstacle Detection
+| Code | Name | Condition (defaults) |
+|---|---|---|
+| `0x01` | `REV_STATUS_SAFE` | distance > 100 cm |
+| `0x02` | `REV_STATUS_WARNING` | 40 cm < distance <= 100 cm |
+| `0x03` | `REV_STATUS_STOP` | distance <= 40 cm |
+| `0x04` | `REV_STATUS_FAULT` | no echo from sensor |
 
-The HC-SR04 ultrasonic sensor is used to measure the distance between the vehicle and the obstacle.
+Thresholds are `SAFE_DIST_CM` and `WARN_DIST_CM` in `IndicatorReverseAlertNode/main.c`.
 
-Distance	Status	Buzzer	Alert LED
-🟢 > 100 cm	SAFE	OFF	OFF
-🟡 41–100 cm	WARNING	Intermittent	OFF
-🔴 ≤ 40 cm	STOP	Continuous	ON
-🟣 No Echo	SENSOR FAULT	Fault indication	OFF
-🟢 SAFE
-Distance > 100 cm
-       ↓
-     SAFE
-       ↓
-Buzzer OFF
-Alert LED OFF
-🟡 WARNING
-Distance = 41–100 cm
-       ↓
-    WARNING
-       ↓
-Intermittent Buzzer
-🔴 STOP
-Distance ≤ 40 cm
-       ↓
-      STOP
-       ↓
-Continuous Buzzer
-       +
-Reverse Alert LED ON
-🟣 Sensor Fault
-No Valid Echo
-      ↓
-SENSOR FAULT
-🌡️ Engine Temperature Monitoring
+### Bit timing (derived in `can_defines.h`)
 
-The DS18B20 sensor is used to monitor the engine temperature.
+| Parameter | Value |
+|---|---|
+| Bit rate | 125 kbps |
+| PCLK | 15 MHz |
+| Time quanta per bit | 15 |
+| BRP | 8 |
+| TSEG1 / TSEG2 | 9 / 5 |
+| Sample point | about 67 % |
+| SJW | 4 |
 
-DS18B20
-   ↓
-Temperature Reading
-   ↓
-LPC2129
-   ↓
-20×4 LCD
-   ↓
-Temperature Display
-🖥️ LCD Display
+### Arbitration priority
 
-The 20×4 LCD displays important vehicle parameters and system status.
+CAN arbitration favours the **lower** ID, so the current order is Fuel (`0x100`) > Mode/Indicator (`0x200`) > Reverse status (`0x300`). If you want safety-relevant traffic to win under load, renumber IDs in `can_ids.h`. No other code changes are needed.
 
-Forward Mode
-┌────────────────────┐
-│ TEMP: 32°C         │
-│ FUEL: 44%          │
-│ MODE: FORWARD      │
-│ L: LEFT  R: RIGHT  │
-└────────────────────┘
-Reverse Mode
-┌────────────────────┐
-│ TEMP: 32°C         │
-│ FUEL: 44%          │
-│ DIST: 164CM        │
-│ SAFE               │
-└────────────────────┘
-📡 CAN Message Map
-CAN ID	Sender	Receiver	Data
-0x100	Fuel Node	Main Node	Fuel Percentage
-0x200	Main Node	Indicator & Reverse Alert Node	Mode / Indicator Command
-0x300	Indicator & Reverse Alert Node	Main Node	Distance / Reverse Status
-🔌 Hardware Components
-Component	Purpose
-LPC2129 ARM7	Main processing and control
-MCP2551	CAN transceiver
-20×4 LCD	Vehicle information display
-DS18B20	Engine temperature monitoring
-HC-SR04	Reverse obstacle detection
-Fuel Sensor	Fuel-level input
-ADC	Fuel measurement
-Indicator LEDs	Left and right indicators
-Buzzer	Warning and STOP alert
-Reverse Alert LED	Obstacle alert
-Switches	Mode and indicator control
-USB-to-UART Converter	Serial communication / debugging
-🔔 External Interrupts
+### Acceptance filter
 
-External interrupts are used for vehicle mode and indicator control.
+The acceptance filter runs in **bypass mode** (`AFMR.AccBP`), so every frame on the bus is received and each node filters by ID in software.
 
-Mode Selection
-Mode Switch
-     ↓
-External Interrupt
-     ↓
-FORWARD ↔ REVERSE
-Left Indicator
-Left Indicator Switch
-        ↓
-External Interrupt
-        ↓
-Left Indicator Command
-Right Indicator
-Right Indicator Switch
-        ↓
-External Interrupt
-        ↓
-Right Indicator Command
-📂 Project Structure
-CAN-Driven-Vehicle-Monitoring-and-Driver-Assistance-System/
-│
-├── Main_Node/
-│   ├── inc/
-│   │   └── *.h
-│   │
-│   └── src/
-│       └── *.c
-│
-├── Fuel_Node/
-│   ├── inc/
-│   │   └── *.h
-│   │
-│   └── src/
-│       └── *.c
-│
-├── Indicator_Reverse_Alert_Node/
-│   ├── inc/
-│   │   └── *.h
-│   │
-│   └── src/
-│       └── *.c
-│
-├── Proteus/
-│   └── simulation-files
-│
-├── Images/
-│   ├── hardware-overview.jpg
-│   ├── lcd-project-title.jpg
-│   ├── forward-mode-output.jpg
-│   └── reverse-mode-output.jpg
-│
-└── README.md
-🧪 Proteus Simulation
+---
 
-The system was tested in Proteus to verify the operation of the individual nodes and CAN communication before hardware implementation.
+## Node Behaviour
 
-Simulation includes:
-LPC2129 microcontrollers
-MCP2551 CAN transceivers
-CAN communication
-20×4 LCD
-DS18B20 temperature sensor
-ADC-based fuel monitoring
-HC-SR04 ultrasonic sensor
-Indicator LEDs
-Buzzer
-External interrupt switches
-Proteus Screenshot
-<p align="center"> <img src="Images/proteus-simulation.png" alt="Proteus Simulation" width="90%"> </p>
-📸 Real Hardware Implementation
+### Main Node: the central controller
 
-The system was implemented and tested on actual LPC2129-based development hardware.
+- Reads engine temperature (DS18B20) and displays it.
+- Receives fuel % from the Fuel Node and shows it with a 5-level icon.
+- **EINT0** toggles Forward/Reverse and sends `MODE_FORWARD` / `MODE_REVERSE`.
+- **EINT1 / EINT2** (Forward mode only) toggle the Left/Right indicator and send `IND_LEFT_ON`, `IND_RIGHT_ON` or `IND_OFF`. The two indicators are mutually exclusive.
+- In Reverse mode, receives distance and status, shows it on the LCD, and drives its own buzzer on STOP.
 
-🏗️ Complete Hardware Setup
-<p align="center"> <img src="Images/hardware-overview.jpg" alt="Complete Hardware Setup" width="90%"> </p>
+### Indicator & Reverse Alert Node
 
-The complete hardware setup consists of the LPC2129 development boards, CAN communication circuitry, LCD, sensors, indicator LEDs, buzzer and supporting connections.
+```mermaid
+stateDiagram-v2
+    [*] --> Forward
+    Forward --> Reverse: MODE_REVERSE (0x02)
+    Reverse --> Forward: MODE_FORWARD (0x01)
 
-📺 Project Title Display
-<p align="center"> <img src="Images/lcd-project-title.jpg" alt="Project Title Display" width="75%"> </p>
+    state Forward {
+        [*] --> IndOff
+        IndOff --> Left: IND_LEFT_ON
+        IndOff --> Right: IND_RIGHT_ON
+        Left --> IndOff: IND_OFF
+        Right --> IndOff: IND_OFF
+    }
 
-The LCD displays the project title during system initialization.
+    state Reverse {
+        [*] --> Measure
+        Measure --> Measure: classify SAFE / WARNING / STOP / FAULT, transmit 0x300 every ~150 ms
+    }
+```
 
-🟢 Forward Mode Output
-<p align="center"> <img src="Images/forward-mode-output.jpg" alt="Forward Mode Output" width="75%"> </p>
+- **Forward:** ultrasonic sensing is disabled. Left scrolls LEDs P0.7 -> P0.0; Right scrolls P0.0 -> P0.7 (120 ms per step).
+- **Reverse:** indicators are forced off. The HC-SR04 is triggered continuously, and the buzzer and LED follow the zone:
 
-In Forward Mode, the system monitors the vehicle parameters and controls the left and right indicators according to the selected command.
+| Zone | Buzzer | STOP LED | Status sent |
+|---|---|---|---|
+| SAFE | off | off | `SAFE` |
+| WARNING | intermittent | off | `WARNING` |
+| STOP | continuous | on | `STOP` |
+| No echo | intermittent | off | `FAULT` |
 
-🔴 Reverse Mode Output
-<p align="center"> <img src="Images/reverse-mode-output.jpg" alt="Reverse Mode Output" width="75%"> </p>
+- Echo width is time-stamped with a **Timer0 1 us hardware tick** rather than busy-loop counting. Distance (cm) = echo width (us) / 58.
 
-In Reverse Mode, the HC-SR04 sensor measures the obstacle distance and the system displays the distance and corresponding safety status on the LCD.
+### Fuel Node
 
-🛠️ Development Environment
-Tool	Details
-IDE	Keil µVision
-Microcontroller	LPC2129 ARM7
-Programming Language	Embedded C
-Communication Protocol	CAN
-CAN Transceiver	MCP2551
-Simulation Tool	Proteus
-Flashing Tool	Flash Magic
-⚙️ Complete System Working
-                         POWER ON
-                            ↓
-                  Initialize GPIO
-                            ↓
-                  Initialize CAN
-                            ↓
-                  Initialize LCD
-                            ↓
-                  Initialize Sensors
-                            ↓
-              Configure External Interrupts
-                            ↓
-                   Read Temperature
-                            ↓
-                  Receive Fuel Data
-                            ↓
-                  Check Vehicle Mode
-                            ↓
-              ┌─────────────┴─────────────┐
-              ↓                           ↓
-        FORWARD MODE                 REVERSE MODE
-              ↓                           ↓
-      Indicator Control              HC-SR04
-              ↓                           ↓
-        Left / Right                  Distance
-         Indicator                  Measurement
-              ↓                           ↓
-              └─────────────┬─────────────┘
-                            ↓
-                    CAN Communication
-                            ↓
-                     Main Node Display
-                            ↓
-                          LCD
-🔄 Overall System Flow
-┌──────────────────────┐
-│      POWER ON        │
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│ System Initialization│
-│ GPIO / CAN / LCD     │
-│ Sensors / Interrupts │
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│   Vehicle Monitoring │
-└──────────┬───────────┘
-           ↓
-     ┌─────┴─────┐
-     ↓           ↓
-  FORWARD      REVERSE
-   MODE          MODE
-     ↓           ↓
-Indicators    HC-SR04
-     ↓           ↓
-     │        Distance
-     │        Measurement
-     │           ↓
-     │      SAFE / WARNING
-     │          / STOP
-     │           ↓
-     └─────┬─────┘
-           ↓
-      CAN Communication
-           ↓
-       Main Node
-           ↓
-      20×4 LCD Display
-🚗 Applications
+- Samples AD0.1 and converts to a percentage: `percent = ADC * 100 / 1023`.
+- Transmits when the value changes by at least `FUEL_CHANGE_THRESHOLD` (2 %), plus a keep-alive roughly every 500 ms.
 
-The system can be used in:
+---
 
-Automotive monitoring systems
-Driver assistance systems
-Reverse parking assistance
-Vehicle dashboard systems
-CAN-based automotive networks
-Vehicle parameter monitoring
-Distributed automotive control systems
-Embedded automotive applications
-🔮 Future Enhancements
+## LCD Dashboard
 
-Possible future enhancements include:
+20x4 layout (Main Node). The fuel icon and arrows are custom CGRAM characters.
 
-🚘 Vehicle speed monitoring
-🔋 Battery voltage monitoring
-📊 Advanced dashboard
-💾 Vehicle data logging
-📍 GPS-based vehicle tracking
-📡 Wireless vehicle monitoring
-🌐 IoT-based vehicle monitoring
-🔧 Additional engine parameter monitoring
-⭐ Conclusion
+```
+TEMP:32 C
+FUEL:45%  [fuel icon]
+MODE:FWD                      <- Forward
+REV:85CM WARNING              <- Reverse (SAFE / WARNING / STOP! / SENSOR FAULT)
+L:<     R:                    <- active indicator arrow blinks
+```
 
-The CAN-Driven Vehicle Monitoring and Driver Assistance System demonstrates a distributed automotive embedded system using multiple LPC2129 nodes communicating through CAN.
+<!-- Add photos of your build here, e.g.
+![Dashboard](docs/images/dashboard.jpg)
+![Three-node setup](docs/images/setup.jpg)
+-->
 
-The system integrates fuel monitoring, engine temperature monitoring, Forward/Reverse mode selection, indicator control, reverse obstacle detection, buzzer alerts and LCD-based vehicle monitoring.
+---
 
-The project demonstrates practical implementation of Embedded C, LPC2129 ARM7, ADC, external interrupts, CAN communication, MCP2551 interfacing, sensor interfacing, LCD interfacing, Proteus simulation and real hardware implementation
+## Repository Structure
+
+```
+.
+├── MainNode/                    # Dashboard, DS18B20, EINT switches, CAN RX/TX
+│   ├── main.c  lcd.c  ds18b20.c  can.c  delay.c  pin_connect_block.c
+│   ├── can_ids.h  can_defines.h  lcd_defines.h  ...
+│   └── mainupdate.uvproj        # Keil project
+├── FuelNode/                    # ADC fuel sensing + CAN TX
+│   ├── main.c  ADC.c  can.c  ...
+│   └── fuel.uvproj
+├── IndicatorReverseAlertNode/   # LED indicators, HC-SR04, buzzer, CAN RX/TX
+│   ├── main.c  hcsr04.c  can.c  ...
+│   └── indicatorupdate.uvproj
+└── docs/                        # Project brief, block diagram, photos
+```
+
+Each node is an independent Keil project. `can.c`, `can.h`, `can_defines.h`, `can_ids.h`, `types.h`, `defines.h`, `delay.*` and `pin_connect_block.*` are shared across nodes, so keep the copies in sync.
+
+---
+
+## Build & Flash
+
+**Requirements:** Keil uVision (ARM7 / MDK-ARM with LPC2129 support), Flash Magic, a USB-to-UART converter.
+
+1. Open the node's project: `mainupdate.uvproj`, `fuel.uvproj` or `indicatorupdate.uvproj`.
+2. Confirm target **LPC2129** and **12 MHz** crystal (already set in the projects).
+3. *Project -> Build Target.* Make sure *Create HEX File* is enabled.
+4. Put the board in ISP mode (ISP switch on the Vector board) and connect the USB-UART converter to UART0.
+5. In Flash Magic: select device **LPC2129**, the correct COM port and baud rate, oscillator **12 MHz**, then load the `.hex` and click **Start**.
+6. Return the ISP switch to run mode and reset the board.
+7. Repeat for the other two nodes, then connect **CANH-CANH** and **CANL-CANL** across all three boards. Fit **120 Ohm termination at both ends of the bus only**.
+
+---
+
+## Bring-up & Test Plan
+
+Test each module on its own before integrating. This order is the one used for the project.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 1 | LCD | Character, string and integer constants render correctly |
+| 2 | ADC | Potentiometer sweep shows 0-1023 on the LCD |
+| 3 | Fuel logic | Fuel % tracks the gauge from 0 to 100 |
+| 4 | External interrupts | Press count increments on the LCD for each of EINT0/1/2 |
+| 5 | HC-SR04 | Distance matches a tape measure at several positions |
+| 6 | DS18B20 | Temperature reads plausibly and changes when warmed by hand |
+| 7 | Basic CAN | Loopback or two-node send/receive of a test frame |
+| 8 | Integration | Fuel % on dashboard; mode toggles; indicators scroll; reverse zones and buzzer behave as per the tables above |
+
+---
+
+## Known Limitations & Roadmap
+
+These are known trade-offs of the current version.
+
+| Limitation | Impact | Suggested improvement |
+|---|---|---|
+| `Read_DS18B20_TempC()` blocks about 750 ms every loop | LCD refresh and CAN polling are slow; the LPC2129 has a single RX buffer, so frames can be overwritten between reads | Start conversion, then read the result on the next pass (non-blocking state machine), or use a CAN RX interrupt |
+| 200 ms blocking debounce inside the EINT ISRs, and `CAN1_Tx()` called from ISRs and from `main` | Long ISR latency; possible contention on TX buffer 1 | Set a flag in the ISR and transmit from the main loop; debounce with a timer |
+| `CAN1_Tx()` busy-waits on `TCS1` with no timeout | A node transmitting alone on a disconnected or unacknowledged bus will hang | Add a timeout, check error and bus-off status, and recover |
+| Fuel is a single raw ADC sample | Display may jitter by 1-2 % | Moving average over N samples and hysteresis on the displayed value |
+| Fuel curve is a linear 0-100 % map | A real float sender is non-linear and needs calibration | Lookup table or per-tank calibration constants |
+| Software delays (`delay_ms/us`) are loop-calibrated for 60 MHz CCLK | Timing changes if the clock or optimization level changes | Replace with hardware timers |
+| No heartbeat or timeout on received data | The Main Node shows stale fuel/reverse data if a node dies | Add node-alive timeouts and a "NO DATA" display state |
+| IDs ordered by function, not by safety priority | Fuel traffic wins arbitration over reverse alerts | Renumber IDs in `can_ids.h` (see [Arbitration priority](#arbitration-priority)) |
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| LCD shows leftover characters after a screen change | Missing clear delay or short strings not padded to 20 characters |
+| `TEMP: -999` | DS18B20 not detected: check DQ wiring (P0.20) and the 4.7 kOhm pull-up |
+| `TEMP: 85` right after power-up | DS18B20 power-on default; a read happened before the first conversion finished |
+| `REV: SENSOR FAULT` | No echo: check TRIG/ECHO wiring, the sensor's 5 V supply, and that nothing blocks the sensor face |
+| Nodes don't communicate | Bit-timing mismatch, missing termination, swapped CANH/CANL, or different `can_ids.h` across nodes |
+| Node freezes on first transmit | No other node is acknowledging frames on the bus (see CAN TX timeout item above) 
+<img width="1312" height="1199" alt="CAN Vehicle Monitoring System Diagram" src="https://github.com/user-attachments/assets/32291072-948c-4c3b-8398-4580278d80ad" />
+
+<img width="1600" height="1200" alt="WhatsApp Image 2026-10-02 at 3 13 08 PM" src="https://github.com/user-attachments/assets/a5c3e6c5-2d39-4c34-9af9-0c60561800e1" />
