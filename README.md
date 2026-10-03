@@ -99,7 +99,6 @@ flowchart LR
     class FUEL fuel;
     class MAIN main;
     class ALERT alert;
-;
 
 # 📡 CAN Communication Architecture
 
